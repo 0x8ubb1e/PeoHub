@@ -1,4 +1,5 @@
 import os
+import sys
 import uuid
 from pathlib import Path
 from tkinter import *
@@ -12,7 +13,8 @@ def sort_name(name):
 	return lazy_pinyin(name.lower())
 
 # =========== 常量 ===========
-ROOT_DIR = Path(__file__).parent
+ROOT_DIR = Path(getattr(sys, '_MEIPASS', os.path.dirname(sys.executable)))
+
 DB_PATH = ROOT_DIR / "people.json"
 TRASH_DB = ROOT_DIR / "trash.json"
 IMG_DIR = ROOT_DIR / "images"
@@ -29,11 +31,8 @@ Trash = Query()
 
 def center(win):
 	win.update_idletasks()
-	# print(f"windows: {win.winfo_screenwidth()}x{win.winfo_screenheight()}")
-	# print(f"box: {win.winfo_width}x{win.winfo_height()}")
 	x = (win.winfo_screenwidth() - win.winfo_width()) // 2
 	y = (win.winfo_screenheight() - win.winfo_height()) // 2
-	# print(f"position: {x}x{y}")
 	win.geometry(f"+{x}+{y}")
 
 def load_image(path, size=(120, 160)):
@@ -87,8 +86,6 @@ class MainWindow(Tk):
 		left = Frame(paned, bg="#2e2e2e", width=175)
 		left.pack_propagate(False)  # ← 关键：禁止子控件撑大
 		paned.add(left)
-		# self.people_list = Listbox(left, font=("微软雅黑", 12), bg="#2e2e2e", fg="#ccc", selectbackground="#555")
-		# self.people_list.pack(fill=BOTH, expand=True, padx=5, pady=5)
 		self.people_tree = ttk.Treeview(left, show="tree", height=15, selectmode="browse")
 		self.people_tree.pack(fill=BOTH, expand=True, padx=2, pady=2)
 		
@@ -96,7 +93,6 @@ class MainWindow(Tk):
 		style = ttk.Style()
 		style.configure("Treeview", font=("微软雅黑", 12), background="#2e2e2e", foreground="#ccc", fieldbackground="#2e2e2e", highlightthickness=0, relief="flat", indent=0, padding=0)
 		style.map("Treeview", background=[("selected", "#555")], foreground=[("selected", "#ccc")])
-		# self.people_list.bind("<<ListboxSelect>>", self.on_select)
 		self.people_tree.bind("<<TreeviewSelect>>", self.on_select)
 		self.people_tree.bind("<Button-3>", self.on_people_right)
 
@@ -105,9 +101,6 @@ class MainWindow(Tk):
 		trash_frame.pack(fill=BOTH, expand=True, padx=5, pady=5)
 
 		# 文件夹/人物树
-		# self.trash_tree = Listbox(trash_frame, font=("微软雅黑", 12),bg="#2e2e2e", fg="#ccc", selectbackground="#555555")
-		# self.trash_tree.pack(fill=BOTH, expand=True, padx=2, pady=2)
-		# self.trash_tree.bind("<Button-3>", self.on_trash_right)
 		self.trash_tree = ttk.Treeview(trash_frame, show="tree", height=8, selectmode="browse")
 		self.trash_tree.pack(fill=BOTH, expand=True, padx=2, pady=2)
 		self.trash_tree.bind("<<TreeviewSelect>>", self.on_select)
@@ -126,13 +119,6 @@ class MainWindow(Tk):
 		self.refresh_all()
 		center(self)
 
-		# # 右键置顶
-		# self.people_list.bind("<Button-3>", self.pop_menu)
-		# self.popup = Menu(self, tearoff=0)
-		# self.popup.add_command(label="置顶", command=self.set_top)
-		# self.popup.add_command(label="取消置顶", command=self.cancel_top)
-		# self.popup.add_command(label="放入回收站", command=self.move_to_trash)
-
 	def on_select(self, evt):
 		w = evt.widget
 
@@ -146,7 +132,6 @@ class MainWindow(Tk):
 
 	# =========== 任务列表 ===========
 	def on_people_right(self, event):  # 人物列表右键
-		# idx = self.people_list.nearest(event.y)
 		item = self.people_tree.identify_row(event.y)
 
 		uuid = self.people_tree.item(item, "tags")[0]
@@ -166,9 +151,6 @@ class MainWindow(Tk):
 		})
 		self.selected_id = pid
 		self.refresh_all()
-		# self.people_list.selection_clear(0, END)
-		# self.people_list.selection_set(END)
-		# self.people_list.event_generate("<<ListboxSelect>>")
 	
 	def set_top(self, person_id: str):
 		db.update({"top": True}, where("id") == person_id)
@@ -230,7 +212,6 @@ class MainWindow(Tk):
 			self.refresh_trash()
 
 	def restore_person(self, person_id):
-		# person = db.get(where("id") == person_id)
 		person = next((p for r in trash_db.all()
 			for p in ([r] if r["type"] == "person" else r.get("items", []))
 			if p["id"] == person_id), None)
@@ -248,26 +229,28 @@ class MainWindow(Tk):
 
 	# =========== 刷新数据 ===========
 	def refresh_all(self):
+		if not DB_PATH.exists():
+			TinyDB(DB_PATH, ensure_ascii=False).insert({})
+			messagebox.showinfo("提示", "数据库文件已创建！")
+		if not TRASH_DB.exists():
+			TinyDB(TRASH_DB, ensure_ascii=False).insert({})
+			messagebox.showinfo("提示", "回收站文件已创建！")
 		self.detail.clear()  # 清空详情，避免脏数据
 		self.refresh_people()
 		self.refresh_trash()
 
 	def refresh_people(self):  # 刷新列表：置顶在前，其余按字母排序
-		# self.people_list.delete(0, END)
 		self.trash_tree.delete(*self.trash_tree.get_children())
 
 		data = db.all()
-		# self.uuid2idx = {p["id"]: i for i, p in enumerate(data)}  # uuid -> Listbox 行号
 		news = [p for p in data if p.get("name") == "新人物"]
 		tops = [p for p in data if p.get("top") and p.get("name") != "新人物"]
 		others = [p for p in data if not p.get("top") and p.get("name") != "新人物"]
 		tops.sort(key=lambda x: sort_name(x["name"]))
 		others.sort(key=lambda x: sort_name(x["name"]))
 		self.all_people = news + tops + others
-		# print([f'{p.get("name")}({p.get("id")})' for p in self.all_people])
 
 		for idx, p in enumerate(self.all_people):
-			# self.people_list.insert(END, f'👤 {p["name"]}    ⭐'  if p.get("top") else f'👤 {p["name"]}')
 			self.people_tree.insert("", "end", text=f'👤 {p["name"]}    ⭐'  if p.get("top") else f'👤 {p["name"]}', tags=(p["id"],))
 			self.uuid2idx = {p["id"]: idx}
 		
@@ -283,13 +266,6 @@ class MainWindow(Tk):
 			print(f'正在展示用户uuid: {self.selected_id}')
 			idx = next((i for i, p in enumerate(self.all_people) if p["id"] == self.selected_id), 0)
 
-		# # self.people_list.selection_set(idx)
-		# self.scroll_to_uuid(self.all_people[0]["id"])
-		# print(f"当前未选中用户，默认展示列表第一个用户idx: {idx} uuid: {self.all_people[0]['id']}")
-		# self.selected_id = data[idx]["id"]
-		# self.detail.load_person(self.selected_id)
-		# print(f"当前选中idx: {idx} 用户uuid： {self.selected_id}")
-
 		item = self.people_tree.get_children()[idx]
 		print(item)
 		self.people_tree.selection_set(item)
@@ -303,17 +279,6 @@ class MainWindow(Tk):
 		self.count_label.config(text=f"人物:{total} 回收站:{trash_total}")
 
 	def refresh_trash(self):
-		# self.trash_tree.delete(0, END)
-		# folders = trash_db.search(Trash.type == "folder")
-		# persons = trash_db.search(Trash.type == "person")
-		# for f in folders:
-		# 	self.trash_tree.insert(END, f'📁 {f["name"]}')
-		# 	for p in f["items"]:
-		# 		self.trash_tree.insert(END, f' 👤 {p["name"]}')
-		
-		# for p in persons:
-		# 	self.trash_tree.insert(END, f'👤 {p["name"]}')
-
 		self.trash_tree.delete(*self.trash_tree.get_children())
 		# 根目录人物
 		for p in trash_db.search(Trash.type == "person"):
@@ -611,7 +576,6 @@ class CropWindow(Toplevel):
 		if self.rect:
 			x, y, w, h = self.rect["x"], self.rect["y"], self.rect["w"], self.rect["h"]
 			self.canvas.create_rectangle(x, y, x + w, y + h, outline="red", width=2)
-		# self.info_label.config(text=f"{self.rect['w']}×{self.rect['h']}  缩放{self.scale:.2f}x" if self.rect else f"缩放{self.scale:.2f}x")
 		self.info_label.config(text=f"{self.rect['w']}×{self.rect['h']} {self.scale:.2f}x")
 
 	def on_left_down(self, event):
@@ -657,15 +621,11 @@ class CropWindow(Toplevel):
 
 	def on_scroll(self, event):
 		factor = 1.1 if event.delta > 0 else 0.9
-		# self.scale = max(0.2, min(5.0, self.scale * factor))
-		# self.redraw()
 
 		w, h = self.original.size
 		box_w, box_h = self.rect["w"], self.rect["h"]
-		# 计算“刚好填满”时的最大比例
-		min_scale = min(box_w / w, box_h / h)
-		# 只允许放大，或缩小到 min_scale
-		self.scale = max(min_scale, min(5.0, self.scale * factor))
+		min_scale = min(box_w / w, box_h / h)  # 计算“刚好填满”时的最大比例
+		self.scale = max(min_scale, min(5.0, self.scale * factor))  # 只允许放大，或缩小到 min_scale
 		self.redraw()
 
 	def on_right(self, event):
@@ -704,10 +664,6 @@ class CropWindow(Toplevel):
 		r = self.rect
 		x1, y1, x2, y2 = [max(0, int(v / self.scale)) for v in (r["x"], r["y"], r["x"] + r["w"], r["y"] + r["h"])]
 
-		# 高清：先原图裁剪，再缩放
-		# cropped = self.original.crop((x1, y1, x2, y2)).resize((120, 160), Image.LANCZOS)
-		# target = IMG_DIR / (str(uuid.uuid4()) + ".jpg")
-		# cropped.save(target)
 		cropped = self.original.crop((x1, y1, x2, y2))
 		target = IMG_DIR / (str(uuid.uuid4()) + ".jpg")
 		cropped.save(target, quality=95)  # 不二次压缩
