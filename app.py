@@ -13,7 +13,8 @@ def sort_name(name):
 	return lazy_pinyin(name.lower())
 
 # =========== 常量 ===========
-ROOT_DIR = Path(getattr(sys, '_MEIPASS', os.path.dirname(sys.executable)))
+# ROOT_DIR = Path(getattr(sys, '_MEIPASS', os.path.dirname(sys.executable)))
+ROOT_DIR = Path.cwd()  # 始终指向“运行目录”
 
 DB_PATH = ROOT_DIR / "people.json"
 TRASH_DB = ROOT_DIR / "trash.json"
@@ -151,7 +152,7 @@ class MainWindow(Tk):
 		})
 		self.selected_id = pid
 		self.refresh_all()
-	
+
 	def set_top(self, person_id: str):
 		db.update({"top": True}, where("id") == person_id)
 		self.selected_id = person_id
@@ -240,7 +241,7 @@ class MainWindow(Tk):
 		self.refresh_trash()
 
 	def refresh_people(self):  # 刷新列表：置顶在前，其余按字母排序
-		self.trash_tree.delete(*self.trash_tree.get_children())
+		self.people_tree.delete(*self.people_tree.get_children())
 
 		data = db.all()
 		news = [p for p in data if p.get("name") == "新人物"]
@@ -250,10 +251,11 @@ class MainWindow(Tk):
 		others.sort(key=lambda x: sort_name(x["name"]))
 		self.all_people = news + tops + others
 
+		# for p in self.all_people:
 		for idx, p in enumerate(self.all_people):
 			self.people_tree.insert("", "end", text=f'👤 {p["name"]}    ⭐'  if p.get("top") else f'👤 {p["name"]}', tags=(p["id"],))
 			self.uuid2idx = {p["id"]: idx}
-		
+
 		# 定位 select_id
 		if not self.selected_id:
 			if not len(self.people_tree.get_children()):
@@ -267,12 +269,12 @@ class MainWindow(Tk):
 			idx = next((i for i, p in enumerate(self.all_people) if p["id"] == self.selected_id), 0)
 
 		item = self.people_tree.get_children()[idx]
-		print(item)
+		# print(item)
 		self.people_tree.selection_set(item)
 		self.people_tree.see(item)
 		self.selected_id = self.all_people[idx]["id"]
 		self.detail.load_person(self.selected_id)  # 只刷新详情，不触发事件
-		
+
 		# 更新计数条
 		total = len(db.all())
 		trash_total = len(trash_db.search(Trash.type == "person"))
@@ -621,7 +623,6 @@ class CropWindow(Toplevel):
 
 	def on_scroll(self, event):
 		factor = 1.1 if event.delta > 0 else 0.9
-
 		w, h = self.original.size
 		box_w, box_h = self.rect["w"], self.rect["h"]
 		min_scale = min(box_w / w, box_h / h)  # 计算“刚好填满”时的最大比例
@@ -664,6 +665,7 @@ class CropWindow(Toplevel):
 		r = self.rect
 		x1, y1, x2, y2 = [max(0, int(v / self.scale)) for v in (r["x"], r["y"], r["x"] + r["w"], r["y"] + r["h"])]
 
+		# 高清：先原图裁剪，再缩放
 		cropped = self.original.crop((x1, y1, x2, y2))
 		target = IMG_DIR / (str(uuid.uuid4()) + ".jpg")
 		cropped.save(target, quality=95)  # 不二次压缩
