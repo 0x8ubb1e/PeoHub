@@ -61,7 +61,7 @@ PeoHub/
 1. 克隆仓库  
 2. `pip install -r requirements.txt`  
 3. 运行 `python app.py`
-4. 修改完成后[通过cx-Freeze打包](./cf-Freeze打包.md)
+4. 修改完成后[通过cx-Freeze打包](./cx-Freeze打包.md)
 
 源码并不是特别复杂，目前可能还存在某些问题，欢迎二开
 
