@@ -2,6 +2,7 @@ import os
 import sys
 import uuid
 from pathlib import Path
+
 from tkinter import *
 from tkinter import ttk, filedialog, messagebox, simpledialog, Toplevel
 from PIL import Image, ImageTk, ImageOps
@@ -11,6 +12,11 @@ from pypinyin import lazy_pinyin
 
 def sort_name(name):
 	return lazy_pinyin(name.lower())
+
+# 自动设置当前工作目录为脚本所在路径
+script_dir = os.path.dirname(os.path.abspath(__file__))
+os.chdir(script_dir)
+print(f'work_path:{script_dir}')
 
 # =========== 常量 ===========
 # ROOT_DIR = Path(getattr(sys, '_MEIPASS', os.path.dirname(sys.executable)))
@@ -30,29 +36,31 @@ Person = Query()
 trash_db = TinyDB(TRASH_DB, encoding="utf-8", ensure_ascii=False)
 Trash = Query()
 
-def center(win):
-	win.update_idletasks()
-	x = (win.winfo_screenwidth() - win.winfo_width()) // 2
-	y = (win.winfo_screenheight() - win.winfo_height()) // 2
-	win.geometry(f"+{x}+{y}")
+# =========== 常量 ===========
+STAGE_YEARS = {
+	"小学": 6,
+	"初中": 3,
+	"高中": 3,
+	"本科": 4,
+	"硕士": 3,
+	"博士": 4
+}
 
-def load_image(path, size=(120, 160)):
-	"""保持长宽比完整填充 size"""
-	try:
-		img = Image.open(path).convert("RGB")
-		return ImageTk.PhotoImage(ImageOps.fit(img, size, Image.LANCZOS, centering=(0.5, 0.5)))
-	except:
-		return ImageTk.PhotoImage(Image.new("RGB", size, "#555555"))
-
-def all_schools():
-	return sorted({edu["school"] for p in db.all() for edu in p.get("educations", [])})
-
+# 设置主题为深色
 def set_dark(root):
 	style = ttk.Style(root)
 	style.theme_use("clam")
 	style.configure(".", background="#2e2e2e", foreground="#ccc", fieldbackground="#3c3c3c")
 	style.map(".", background=[("active", "#444")])
 
+# 将窗口居中显示
+def center(win):
+	win.update_idletasks()
+	x = (win.winfo_screenwidth() - win.winfo_width()) // 2
+	y = (win.winfo_screenheight() - win.winfo_height()) // 2
+	win.geometry(f"+{x}+{y}")
+
+# 弹出一个对话框，并居中显示
 def ask_centered(title, prompt):
 	root = Toplevel()
 	root.withdraw()  # 隐藏主窗口
@@ -64,6 +72,49 @@ def ask_centered(title, prompt):
 		root.geometry(f"+{x}+{y}")
 	root.destroy()
 	return dlg
+
+# 加载图片
+def load_image(path, size=(120, 160)):
+	"""保持长宽比完整填充 size"""
+	try:
+		img = Image.open(path).convert("RGB")
+		return ImageTk.PhotoImage(ImageOps.fit(img, size, Image.LANCZOS, centering=(0.5, 0.5)))
+	except:
+		return ImageTk.PhotoImage(Image.new("RGB", size, "#555555"))
+
+# 获取所有已输入的学校
+def all_schools():
+	return sorted({edu["school"] for p in db.all() for edu in p.get("educations", [])})
+
+# 根据选中的学校输出所有已输入的学院
+def get_colleges_by_school(school):
+	return sorted({e["college"] for p in db.all() for e in p["educations"] if e["school"] == school and e["college"]})
+
+# 根据选中的学校和学院输出所有已输入的专业
+def get_majors_by_college(school, college):
+	return sorted({e["major"] for p in db.all() for e in p["educations"] if e["school"] == school and e["college"] == college and e["major"]})
+
+# 自动计算结束年份
+def auto_end_year(stage, start):
+	return start + STAGE_YEARS.get(stage, 0)
+
+# 输出所有已输入的平台
+def all_platforms():
+	return sorted({s["platform"] for p in db.all() for s in p.get("socials", [])})
+
+# 将trash.json中的数据移到people.json 合并数据源
+def migrate():
+	if TRASH_DB.exists():
+		for item in trash_db.all():
+			if item["type"] == "person":
+				item["status"] = "recycled"
+				db.insert(item)
+			elif item["type"] == "folder":
+				for p in item["items"]:
+					p["status"] = "recycled"
+					p["folder"] = item["name"]
+					db.insert(p)
+		TRASH_DB.unlink()
 
 # =========== 主窗口 ===========
 class MainWindow(Tk):
@@ -347,9 +398,9 @@ class PersonDetail(Frame):
 		# 教育经历
 		edu = LabelFrame(self, text="教育经历", bg="#2e2e2e", fg="#ccc")
 		edu.pack(fill=X, padx=10, pady=2)
-		self.edu_tree = ttk.Treeview(edu, columns=("stage", "school", "year", "major", "class_name", "student_id", "thesis", "note"), show="headings", height=3)
+		self.edu_tree = ttk.Treeview(edu, columns=("stage", "school", "year", "college", "major", "class", "student_id", "thesis", "note"), show="headings", height=3)
 		self.edu_tree.pack(fill=BOTH, expand=True)
-		heads = {"stage": ("阶段", CENTER), "school": ("学校", W), "year": ("年份", CENTER), "major": ("专业", CENTER), "class_name": ("班级", CENTER), "student_id": ("学号", CENTER), "thesis": ("毕业论文", W), "note": ("备注", W)}
+		heads = {"stage": ("阶段", CENTER), "school": ("学校", W), "year": ("年份", CENTER), "college": ("学院", CENTER),  "major": ("专业", CENTER), "class": ("班级", CENTER), "student_id": ("学号", CENTER), "thesis": ("毕业论文", W), "note": ("备注", W)}
 		for col, (txt, anchor) in heads.items():
 			self.edu_tree.heading(col, text=txt)
 			self.edu_tree.column(col, width=70 if col != "note" else 120, anchor=anchor)
@@ -427,9 +478,7 @@ class PersonDetail(Frame):
 	def refresh_edu(self, educations):
 		for item in self.edu_tree.get_children(): self.edu_tree.delete(item)
 		for edu in educations:
-			self.edu_tree.insert("", END, values=(
-				edu["stage"], edu["school"], f"{edu.get('start', '')}-{edu.get('end', '')}", edu.get("major", ""), edu.get("class_name", ""), edu.get("student_id", ""), edu.get("thesis", ""), edu.get("note", "")
-			))
+			self.edu_tree.insert("", END, values=(edu["stage"], edu["school"], f"{edu.get('start', '')}-{edu.get('end', '')}", edu.get("college", ""), edu.get("major", ""), edu.get("class", ""), edu.get("student_id", ""), edu.get("thesis", ""), edu.get("note", "")))
 
 	def edit_edu(self):
 		sel = self.edu_tree.selection()
@@ -437,12 +486,13 @@ class PersonDetail(Frame):
 		idx = self.edu_tree.index(sel[0])
 		item = self.edu_tree.item(sel[0])
 		values = item["values"]
+		print(values)
 		EduDialog(self, {
-			"stage": values[0], "school": values[1], 
+			"stage": values[0], "school": values[1], "college": values[3],
 			"start": int(values[2].split("-")[0]) if values[2] != "-" else None,
 			"end": int(values[2].split("-")[1]) if values[2] != "-" else None,
-			"major": values[3], "class_name": values[4], "student_id": values[5],
-			"thesis": values[6], "note": values[7], "index": idx
+			"major": values[4], "class": values[5], "student_id": values[6],
+			"thesis": values[7], "note": values[8], "index": idx
 		})
 
 	def delete_edu(self):
@@ -690,7 +740,7 @@ class EduDialog(Toplevel):
 		self.on_stage_change()
 
 	def build(self):
-		label_pairs = [("阶段 *", "stage"), ("学校 *", "school"), ("开始年份", "start"), ("结束年份", "end"), ("专业", "major"), ("班级", "class_name"), ("学号", "student_id"), ("毕业论文", "thesis"), ("备注", "note")]
+		label_pairs = [("阶段 *", "stage"), ("学校 *", "school"), ("开始年份", "start"), ("结束年份", "end"), ("学院", "college"), ("专业", "major"), ("班级", "class"), ("学号", "student_id"), ("毕业论文", "thesis"), ("备注", "note")]
 		self.vars = {}
 		for i, (label_txt, key) in enumerate(label_pairs):
 			Label(self, text=label_txt, bg="#2e2e2e", fg="#ccc").grid(row=i, column=0, sticky=E, padx=10, pady=4)
@@ -720,10 +770,11 @@ class EduDialog(Toplevel):
 			self.school_combo.set(self.edu["school"])
 			self.vars["start"].set(str(self.edu.get("start", "")))
 			self.vars["end"].set(str(self.edu.get("end", "")))
+			self.vars["college"].set(self.edu.get("college", ""))
 			self.vars["major"].set(self.edu.get("major", ""))
-			self.vars["class"].set(self.edu.get("class_name", ""))
+			self.vars["class"].set(self.edu.get("class", ""))
 			self.vars["student_id"].set(self.edu.get("student_id", ""))
-			self.vars["毕业论文"].set(self.edu.get("thesis", ""))
+			self.vars["thesis"].set(self.edu.get("thesis", ""))
 			self.vars["note"].insert(1.0, self.edu.get("note", ""))
 		else:
 			self.stage_combo.set("本科")
@@ -746,8 +797,9 @@ class EduDialog(Toplevel):
 			"stage": stage, "school": school,
 			"start": int(self.vars["start"].get()) if self.vars["start"].get().isdigit() else None,
 			"end": int(self.vars["end"].get()) if self.vars["end"].get().isdigit() else None,
+			"college": self.vars["college"].get().strip(),
 			"major": self.vars["major"].get().strip(),
-			"class_name": self.vars["class_name"].get().strip(),
+			"class": self.vars["class"].get().strip(),
 			"student_id": self.vars["student_id"].get().strip(),
 			"thesis": self.vars["thesis"].get().strip(),
 			"note": self.vars["note"].get(1.0, END).strip()
@@ -831,5 +883,6 @@ class SocialDialog(Toplevel):
 
 # =========== 启动 ===========
 if __name__ == "__main__":
+	migrate()
 	app = MainWindow()
 	app.mainloop()
